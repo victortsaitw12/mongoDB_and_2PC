@@ -2,7 +2,7 @@ const MongoClient = require('mongodb').MongoClient;
 
 
 // Connection URL
-const url = 'xxxx';
+const url = 'mongodb://victor:12345@ds039195.mlab.com:39195/vmarket';
 
 // Database Name
 const dbName = 'vmarket';
@@ -28,26 +28,50 @@ let newTransaction = (db) => {
   });
 };
 
-let doTransactions = (db) => {
+let retriveTransactionToStart = (db) => {
+  return db.collection(db_transaction).findOne({
+    state: "initial"
+  }).then((docs) => {
+    if (!docs) return Promise.reject('docs is empty');
+    return docs;
+  });    
+};
+
+let updateStateToPending = (db, t) => {
+  // Update transaction state to pending
+  return db.collection(db_transaction).updateOne(
+    { _id: t._id, state: "initial" },
+    {
+      $set: { state: "pending" },
+      $currentDate: { lastModified: true }
+    }
+  ).then(() => t);   
+};
+
+let updateStateToApplied = (db, t) => {
+  // Update transaction state to applied
+  return db.collection(db_transaction).updateOne(
+    { _id: t._id, state: "pending" },
+    {
+      $set: { state: "applied" },
+      $currentDate: { lastModified: true }
+    }
+  ).then(() => t);    
+};
+
+let updateStateToDone = (db, t) => {
+  // Update transaction state to done
+  return db.collection(db_transaction).updateOne(
+    { _id: t._id, state: "applied" },
+    {
+      $set: { state: "done" },
+      $currentDate: { lastModified: true }
+    }
+  ).then(() => t);   
+};
+
+let applyTransaction = (db, t) => {
   return Promise.resolve().then(() => {
-    // Retrieve the transaction to start
-    return db.collection(db_transaction).findOne({
-      state: "initial"
-    }).then((docs) => {
-      if (!docs) return Promise.reject('docs is empty');
-      return docs;
-    });
-  }).then((t) => {
-    // Update transaction state to pending
-    return db.collection(db_transaction).updateOne(
-      { _id: t._id, state: "initial" },
-      {
-        $set: { state: "pending" },
-        $currentDate: { lastModified: true }
-      }
-    ).then(() => t);
-  }).then((t) => {
-    // Apply the the transaction to both accounts.
     return db.collection('accounts').updateOne(
      { _id: t.source, pendingTransactions: { $ne: t._id } },
      { $inc: { balance: -t.value }, $push: { pendingTransactions: t._id } }
@@ -56,17 +80,12 @@ let doTransactions = (db) => {
     return db.collection('accounts').updateOne(
      { _id: t.destination, pendingTransactions: { $ne: t._id } },
      { $inc: { balance: t.value }, $push: { pendingTransactions: t._id } }
-    ).then(() => t);
-  }).then((t) => {
-    // Update transaction state to applied
-    return db.collection(db_transaction).updateOne(
-     { _id: t._id, state: "pending" },
-     {
-       $set: { state: "applied" },
-       $currentDate: { lastModified: true }
-     }
-    ).then(() => t);
-  }).then((t) => {
+    ).then(() => t);         
+  }); 
+};
+
+let commitTransaction = (db, t) => {
+  return Promise.resolve().then(() => {
     // Update both accounts' list of pending transactions
     return db.collection('accounts').updateOne(
      { _id: t.source, pendingTransactions: t._id },
@@ -77,15 +96,23 @@ let doTransactions = (db) => {
      { _id: t.destination, pendingTransactions: t._id },
      { $pull: { pendingTransactions: t._id } }
     ).then(() => t);
+  });
+};
+
+let doTransactions = (db) => {
+  return Promise.resolve().then(() => {
+    // Retrieve the transaction to start
+    return retriveTransactionToStart(db);
   }).then((t) => {
-    // Update transaction state to done
-    return db.collection(db_transaction).updateOne(
-     { _id: t._id, state: "applied" },
-     {
-       $set: { state: "done" },
-       $currentDate: { lastModified: true }
-     }
-    ).then(() => t);
+   return updateStateToPending(db, t);
+  }).then((t) => {
+    return applyTransaction(db, t);
+  }).then((t) => {
+    return updateStateToApplied(db, t);
+  }).then((t) => {
+   return commitTransaction(db, t);
+  }).then((t) => {
+    return updateStateToDone(db, t);
   });
 };
 
@@ -107,7 +134,9 @@ let main = () => {
   .then((client) => {
     console.log("Connected successfully to server");
     return client.db(dbName);
-  }).then((db) => {
+  })
+  /*
+  .then((db) => {
     beforeTest(db).then(() => {
       return newTransaction(db);
     }).then(() => {
@@ -122,6 +151,7 @@ let main = () => {
       afterTest(db);      
       throw err;
     });
-  });    
+  });  
+  */
 };
 main();
