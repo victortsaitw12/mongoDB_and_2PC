@@ -2,7 +2,7 @@ const MongoClient = require('mongodb').MongoClient;
 
 
 // Connection URL
-const url = 'mongodb://victor:12345@ds039195.mlab.com:39195/vmarket';
+const url = 'xxxx';
 
 // Database Name
 const dbName = 'vmarket';
